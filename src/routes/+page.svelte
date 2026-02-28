@@ -1,35 +1,39 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import ChartCore from '$lib/chart/ChartCore.svelte';
 	import { mapPolygonToCandle } from '$lib/chart/mappers';
-	import type { Candle} from '$lib/chart/types';
+	import type { Candle } from '$lib/chart/types';
 
 	let candles = $state<Candle[]>([]);
 	let loading = $state(false);
-	let error:string|null=$state(null);
+	let error: string | null = $state(null);
 
-	async function loadDate(){
-		try{
+	async function loadDate() {
+		try {
 			loading = true;
 			error = null;
 
-			const response = await fetch('https://api.massive.com/v2/aggs/ticker/AAPL/range/1/minute/2025-11-01/2025-11-30?sort=asc&limit=15000&apiKey=oj3woDH8ZPPOWOVbYkvdmiYVJKqJXpb7');
+			const response = await fetch(
+				'https://api.massive.com/v2/aggs/ticker/AAPL/range/1/minute/2025-11-01/2025-11-30?sort=asc&limit=15000&apiKey=oj3woDH8ZPPOWOVbYkvdmiYVJKqJXpb7'
+			);
 
-			if(!response.ok) {
+			if (!response.ok) {
 				throw new Error(`HTTP ${response.status}`);
 			}
 
-			const data=await response.json();
-			console.log('Raw API data:', data);
+			const data = await response.json();
 			candles = mapPolygonToCandle(data);
-		
-		} catch(err:any) {
-			error =err.message;
+		} catch (err: any) {
+			error = err.message;
 		} finally {
 			loading = false;
 		}
 	}
 
-	loadDate();
+	//Run only in browser
+	onMount(() => {
+		loadDate();
+	});
 </script>
 
 <div class="p-10">
@@ -41,5 +45,4 @@
 	{:else}
 		<ChartCore {candles} />
 	{/if}
-	
 </div>
