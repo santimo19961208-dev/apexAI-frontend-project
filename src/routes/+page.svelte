@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
-	import ChartCore from '$lib/chart/ChartCore.svelte';
+	import ChartContainer from '$lib/chart/ChartContainer.svelte';
 	import { mapPolygonToCandle } from '$lib/chart/mappers';
 	import type { Candle } from '$lib/chart/types';
 
@@ -43,6 +43,6 @@
 	{:else if error}
 		<p class="text-red-500">Error: {error}</p>
 	{:else}
-		<ChartCore {candles} />
+		<ChartContainer {candles} />
 	{/if}
 </div>
