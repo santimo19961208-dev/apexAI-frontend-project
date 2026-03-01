@@ -1,3 +1,4 @@
+import type { UTCTimestamp } from 'lightweight-charts';
 import type {Candle} from './types';
 interface PolygonAgg{
     t:number;
@@ -18,7 +19,7 @@ export function mapPolygonToCandle(apiResponse:PolygonResponse):Candle[]{
     if(!apiResponse.results) return [];
 
     return apiResponse.results.map((item) => ({
-        time: Math.floor(item.t / 1000), // Convert milliseconds to seconds
+        time: (item.t/1000) as UTCTimestamp, // Convert milliseconds to seconds
         
         open: item.o,
         high: item.h,

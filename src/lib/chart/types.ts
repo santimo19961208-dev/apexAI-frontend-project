@@ -1,5 +1,7 @@
+import type { UTCTimestamp } from "lightweight-charts";
+
 export interface Candle{
-    time: number; //unix timestamp in seconds
+    time: UTCTimestamp; //unix timestamp in seconds
     open: number;
     high: number;
     low: number;
