@@ -1,5 +1,5 @@
 import type { UTCTimestamp } from 'lightweight-charts';
-import type {Candle} from './types';
+import type {Candle} from './types/market';
 interface PolygonAgg{
     t:number;
     o:number;
@@ -14,6 +14,7 @@ interface PolygonAgg{
 interface PolygonResponse{
     results?:PolygonAgg[];
 }
+
 
 export function mapPolygonToCandle(apiResponse:PolygonResponse):Candle[]{
     if(!apiResponse.results) return [];

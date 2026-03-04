@@ -1,4 +1,4 @@
-import type { Candle } from './types';
+import type { Candle } from './types/market';
 import type { Timeframe } from './ChartToolbar.svelte';
 import type { UTCTimestamp } from 'lightweight-charts';
 

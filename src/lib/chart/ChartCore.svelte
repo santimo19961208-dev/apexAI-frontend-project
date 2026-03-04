@@ -5,23 +5,34 @@
 		CandlestickSeries,
 		HistogramSeries,
 		LineSeries,
+		createSeriesMarkers,
 		type IChartApi,
 		type ISeriesApi,
-		type Time,
-		type LineData
+		type Time
 	} from 'lightweight-charts';
+
+	import { IndicatorEngine } from './engine/IndicatorEngine';
+	import { calculateEMA } from './indicators/ema';
+	import { mapVWAP } from './indicators/vwap';
+
+	import type { Candle } from './types/market';
+	import type { StrategySignal, StrategyLevels } from './types/strategy';
 
 	let {
 		candles = [],
 		vwapEnabled = false,
-		emaEnabled = false
+		emaEnabled = false,
+		signals = [],
+		strategyLevels = {},
+		theme = 'dark'
 	}: {
 		candles: Candle[];
 		vwapEnabled: boolean;
 		emaEnabled: boolean;
+		signals: StrategySignal[];
+		strategyLevels: StrategyLevels;
+		theme: 'dark' | 'light';
 	} = $props();
-
-	import type { Candle } from './types';
 
 	let container: HTMLDivElement;
 	let chart: IChartApi;
@@ -29,19 +40,6 @@
 	let volumeSeries: ISeriesApi<'Histogram'>;
 
 	let resizeObserver: ResizeObserver;
-
-	//Indicator Engine
-	type Indicator = {
-		create: () => void;
-		setData: (data: Candle[]) => void;
-		update: (last: Candle) => void;
-		destroy: () => void;
-	};
-
-	const indicators = new Map<string, Indicator>();
-
-	let vwapSeries: ISeriesApi<'Line'> | null = null;
-	let emaSeries: ISeriesApi<'Line'> | null = null;
 
 	let previousLength = 0;
 	let previousLastTime: Time | undefined;
@@ -53,206 +51,90 @@
 	let high: number | undefined = $state(undefined);
 	let low: number | undefined = $state(undefined);
 	let close: number | undefined = $state(undefined);
+	let volume: number | undefined = $state(undefined);
 
-	let tooltipVisible = $state(false);
-	let tooltipX = $state(0);
-	let tooltipY = $state(0);
+	let indicatorEngine: IndicatorEngine;
 
-	let tooltipClose: number | undefined = $state(undefined);
-	let tooltipVolume: number | undefined = $state(undefined);
-	let tooltipVwap: number | undefined = $state(undefined);
+	// let tooltipVisible = $state(false);
+	// let tooltipX = $state(0);
+	// let tooltipY = $state(0);
 
-	let tooltipElement: HTMLDivElement | null = $state(null);
+	// let tooltipClose: number | undefined = $state(undefined);
+	// let tooltipVolume: number | undefined = $state(undefined);
+	// let tooltipVwap: number | undefined = $state(undefined);
+
+	// let tooltipElement: HTMLDivElement | null = $state(null);
 
 	function toVolumeData(data: Candle[]) {
 		return data.map((d) => ({
 			time: d.time,
-			value: (d as any).volume ?? 0,
-			color: d.close >= d.open ? '#22c55e' : '#ef4444'
+			value: d.volume ?? 0,
+			color: d.close >= d.open ? 'rgba(22,163,74,0.4)' : 'rgba(220,38,38,0.4)'
 		}));
 	}
 
 	function handleMouseLeave() {
-		tooltipVisible = false;
-		open = high = low = close = undefined;
+		// tooltipVisible = false;
+		open = high = low = close = volume = undefined;
 	}
 
 	function handleDoubleClick() {
 		chart.timeScale().fitContent();
 	}
 
-	//VWAP Indicator
-	const vwapIndicator: Indicator = {
-		create() {
-			if (!chart || vwapSeries) return;
+	function drawSignals() {
+		if (!signals.length) return;
 
-			vwapSeries = chart.addSeries(LineSeries, {
-				color: '#3b82f6',
-				lineWidth: 2,
-				priceLineVisible: false,
-				lastValueVisible: true
-			});
-		},
-
-		setData(data: Candle[]) {
-			if (!vwapSeries) return;
-
-			const vwapData: LineData<Time>[] = data
-				.filter((c) => c.vwap !== undefined)
-				.map((c) => ({
-					time: c.time,
-					value: c.vwap as number
-				}));
-
-			vwapSeries.setData(vwapData);
-		},
-
-		update(last: Candle) {
-			if (!vwapSeries || last.vwap === undefined) return;
-
-			vwapSeries.update({
-				time: last.time,
-				value: last.vwap
-			} as LineData<Time>);
-		},
-
-		destroy() {
-			if (!chart || !vwapSeries) return;
-
-			chart.removeSeries(vwapSeries);
-			vwapSeries = null;
-		}
-	};
-
-	//EMA Indicator (20)
-	function calculateEMA(data: Candle[], period: number) {
-		const k = 2 / (period + 1);
-		const result: LineData<Time>[] = [];
-
-		let ema: number | undefined;
-
-		for (let i = 0; i < data.length; i++) {
-			const close = data[i].close;
-
-			if (i === 0) {
-				ema = close;
-			} else {
-				ema = close * k + (ema as number) * (1 - k);
-			}
-
-			result.push({
-				time: data[i].time,
-				value: ema
-			});
-		}
-
-		return result;
+		createSeriesMarkers(
+			candleSeries,
+			signals.map((s) => ({
+				time: s.time as Time,
+				position: s.side === 'long' ? 'belowBar' : 'aboveBar',
+				color: s.side === 'long' ? '#22c55e' : '#ef4444',
+				shape: s.side === 'long' ? 'arrowUp' : 'arrowDown'
+			}))
+		);
 	}
 
-	const emaIndicator: Indicator = {
-		create() {
-			if (!chart || emaSeries) return;
-
-			emaSeries = chart.addSeries(LineSeries, {
-				color: '#f59e0b',
-				lineWidth: 2,
-				priceLineVisible: false,
-				lastValueVisible: true
+	function drawLevels() {
+		function drawLine(price: number, color: string) {
+			const line = chart.addSeries(LineSeries, {
+				color,
+				lineWidth: 1,
+				lineStyle: 2 // dashed
 			});
-		},
 
-		setData(data: Candle[]) {
-			if (!emaSeries) return;
-
-			const emaData = calculateEMA(data, 20);
-			emaSeries.setData(emaData);
-		},
-
-		update(last: Candle) {
-			if (!emaSeries) return;
-
-			// easiest safe approach → recompute full EMA
-			const emaData = calculateEMA(candles, 20);
-			emaSeries.setData(emaData);
-		},
-
-		destroy() {
-			if (!chart || !emaSeries) return;
-
-			chart.removeSeries(emaSeries);
-			emaSeries = null;
+			line.setData([
+				{ time: candles[0].time, value: price },
+				{ time: candles[candles.length - 1].time, value: price }
+			]);
 		}
-	};
+
+		if (strategyLevels.entry) drawLine(strategyLevels.entry, '#3b82f6');
+
+		if (strategyLevels.stop) drawLine(strategyLevels.stop, '#ef4444');
+
+		if (strategyLevels.take) drawLine(strategyLevels.take, '#22c55e');
+	}
 
 	//Mount
 	onMount(() => {
 		chart = createChart(container, {
 			width: container.clientWidth,
-			height: 500,
-			layout: {
-				background: { color: '#ffffff' },
-				textColor: '#000000'
-			},
-			grid: {
-				vertLines: { color: 'rgba(148, 163, 184, 0.8)', style: 1 }, //dashed
-				horzLines: { color: 'rgba(148, 163, 184, 0.8)', style: 1 }
-			},
-			crosshair: {
-				mode:1, // Magnet mode
-				vertLine: {
-					color: 'rgba(148, 163, 184, 0.4)',
-					width: 1,
-					style: 1,
-					labelVisible: false
-				},
-
-				horzLine: {
-					color: 'rgba(148, 163, 184, 0.4)',
-					width: 1,
-					style: 1,
-					labelVisible: true,
-					labelBackgroundColor: '#1e293b'
-				}
-			},
-
-			rightPriceScale: {
-				borderColor: 'rgba(255,255,255,0.1)',
-				scaleMargins: {
-					top: 0.1,
-					bottom: 0.1
-				}
-			},
-
-			timeScale: {
-				borderColor: 'rgba(255,255,255,0.1)'
-			},
-
-			handleScroll: {
-				mouseWheel: true,
-				pressedMouseMove: true,
-				horzTouchDrag: true,
-				vertTouchDrag: false
-			},
-
-			handleScale: {
-				axisPressedMouseMove: {
-					time: true,
-					price: false
-				},
-				mouseWheel: true,
-				pinch: true
-			}
+			height: 500
 		});
 
 		candleSeries = chart.addSeries(CandlestickSeries, {
-			upColor: '#22c55e',
-			downColor: '#ef4444',
+			upColor: '#16a34a',
+			downColor: '#dc2626',
 			borderVisible: false,
-			wickUpColor: '#22c55e',
-			wickDownColor: '#ef4444',
+			wickUpColor: '#16a34a',
+			wickDownColor: '#dc2626',
 
 			priceLineVisible: true,
-			lastValueVisible: true
+			lastValueVisible: true,
+			priceLineColor: theme === 'dark' ? '#3b82f6' : '#2563eb',
+			priceLineWidth: 1
 		});
 
 		volumeSeries = chart.addSeries(HistogramSeries, {
@@ -262,19 +144,19 @@
 			priceScaleId: 'volume'
 		});
 
+		drawSignals();
+		drawLevels();
+
 		chart.subscribeCrosshairMove((param) => {
 			if (!param.point || !param.time) {
-				tooltipVisible = false;
-				open = high = low = close = undefined;
+				open = high = low = close = volume = undefined;
 				return;
 			}
 
 			const candleData = param.seriesData.get(candleSeries);
 			const volumeData = param.seriesData.get(volumeSeries);
-			const vwapData = vwapSeries ? param.seriesData.get(vwapSeries) : undefined;
 
 			if (!candleData) {
-				tooltipVisible = false;
 				return;
 			}
 
@@ -291,40 +173,10 @@
 			low = candle.low;
 			close = candle.close;
 
-			tooltipClose = candle.close;
-			tooltipVolume =
+			volume =
 				typeof volumeData === 'object' && volumeData !== null && 'value' in volumeData
 					? (volumeData as { value: number }).value
 					: undefined;
-
-			tooltipVwap =
-				typeof vwapData === 'object' && vwapData !== null && 'value' in vwapData
-					? (vwapData as { value: number }).value
-					: undefined;
-
-			tooltipVisible = true;
-
-			// initial position
-			let x = param.point.x + 12;
-			let y = param.point.y + 12;
-
-			const containerRect = container.getBoundingClientRect();
-			const tooltipRect = tooltipElement?.getBoundingClientRect();
-
-			if (tooltipRect) {
-				// Prevent overflow right
-				if (x + tooltipRect.width > containerRect.width) {
-					x = param.point.x - tooltipRect.width - 12;
-				}
-
-				// Prevent overflow bottom
-				if (y + tooltipRect.height > containerRect.height) {
-					y = param.point.y - tooltipRect.height - 12;
-				}
-			}
-
-			tooltipX = x;
-			tooltipY = y;
 		});
 
 		chart.priceScale('volume').applyOptions({
@@ -353,7 +205,27 @@
 			});
 		}
 
-		// 🔥 Resize Observer
+		indicatorEngine = new IndicatorEngine(chart);
+
+		$effect(() => {
+			if (!indicatorEngine) return;
+
+			if (vwapEnabled) {
+				indicatorEngine.addLineIndicator('vwap', '#2563eb', mapVWAP);
+			} else {
+				indicatorEngine.removeIndicator('vwap');
+			}
+
+			if (emaEnabled) {
+				indicatorEngine.addLineIndicator('ema20', '#f59e0b', (data) => calculateEMA(data, 20));
+			} else {
+				indicatorEngine.removeIndicator('ema20');
+			}
+
+			indicatorEngine.setAll(candles);
+		});
+
+		// Resize Observer
 		resizeObserver = new ResizeObserver((entries) => {
 			if (!chart) return;
 
@@ -370,40 +242,62 @@
 		container.addEventListener('dblclick', handleDoubleClick);
 	});
 
-	//VWAP Toggle Lifecycle
 	$effect(() => {
 		if (!chart) return;
 
-		if (vwapEnabled) {
-			if (!indicators.has('vwap')) {
-				vwapIndicator.create();
-				vwapIndicator.setData(candles);
-				indicators.set('vwap', vwapIndicator);
+		chart.applyOptions({
+			layout: {
+				background: {
+					color: theme === 'dark' ? '#0b1220' : '#f8fafc'
+				},
+				textColor: theme === 'dark' ? '#e2e8f0' : '#111827'
+			},
+			grid: {
+				vertLines: {
+					color: theme === 'dark' ? 'rgba(148,163,184,0.08)' : 'rgba(0,0,0,0.05)'
+				},
+				horzLines: {
+					color: theme === 'dark' ? 'rgba(148,163,184,0.08)' : 'rgba(0,0,0,0.05)'
+				}
+			},
+			crosshair: {
+				mode: 1,
+				vertLine: {
+					color: theme === 'dark' ? 'rgba(148,163,184,0.4)' : 'rgba(0,0,0,0.3)',
+					width: 1,
+					style: 2
+				},
+				horzLine: {
+					color: theme === 'dark' ? 'rgba(148,163,184,0.4)' : 'rgba(0,0,0,0.3)',
+					width: 1,
+					style: 2
+				}
+			},
+			rightPriceScale: {
+				borderColor: 'rgba(255,255,255,0.1)',
+				scaleMargins: {
+					top: 0.1,
+					bottom: 0.1
+				}
+			},
+			timeScale: {
+				borderColor: 'rgba(255,255,255,0.1)'
+			},
+			handleScroll: {
+				mouseWheel: true,
+				pressedMouseMove: true,
+				horzTouchDrag: true,
+				vertTouchDrag: false
+			},
+			handleScale: {
+				axisPressedMouseMove: {
+					time: true,
+					price: false
+				},
+				mouseWheel: true,
+				pinch: true
 			}
-		} else {
-			if (indicators.has('vwap')) {
-				vwapIndicator.destroy();
-				indicators.delete('vwap');
-			}
-		}
-	});
-
-	//EMA Toggle Lifecycle
-	$effect(() => {
-		if (!chart) return;
-
-		if (emaEnabled) {
-			if (!indicators.has('ema')) {
-				emaIndicator.create();
-				emaIndicator.setData(candles);
-				indicators.set('ema', emaIndicator);
-			}
-		} else {
-			if (indicators.has('ema')) {
-				emaIndicator.destroy();
-				indicators.delete('ema');
-			}
-		}
+		});
 	});
 
 	//Main Update Engine
@@ -421,38 +315,37 @@
 			candleSeries.setData(candles);
 			volumeSeries.setData(toVolumeData(candles));
 
-			indicators.forEach((indicator) => {
-				indicator.setData(candles);
-			});
+			if (indicatorEngine) {
+				indicatorEngine.setAll(candles);
+			}
 		} else if (candles.length > previousLength) {
 			candleSeries.update(last);
 			volumeSeries.update({
 				time: last.time,
-				value: (last as any).volume ?? 0,
+				value: last.volume ?? 0,
 				color: last.close >= last.open ? '#22c55e' : '#ef4444'
 			});
 
-			indicators.forEach((indicator) => {
-				indicator.update(last);
-			});
+			if (indicatorEngine) {
+				indicatorEngine.updateOneAll(candles);
+			}
 		} else if (last.time === previousLastTime) {
 			candleSeries.update(last);
 			volumeSeries.update({
 				time: last.time,
-				value: (last as any).volume ?? 0,
+				value: last.volume ?? 0,
 				color: last.close >= last.open ? '#22c55e' : '#ef4444'
 			});
-
-			indicators.forEach((indicator) => {
-				indicator.update(last);
-			});
+			if (indicatorEngine) {
+				indicatorEngine.updateOneAll(candles);
+			}
 		} else {
 			candleSeries.setData(candles);
 			volumeSeries.setData(toVolumeData(candles));
 
-			indicators.forEach((indicator) => {
-				indicator.setData(candles);
-			});
+			if (indicatorEngine) {
+				indicatorEngine.setAll(candles);
+			}
 		}
 
 		previousLength = candles.length;
@@ -498,22 +391,11 @@
 		H: {high?.toFixed(2) ?? '--'}
 		L: {low?.toFixed(2) ?? '--'}
 		C: {close?.toFixed(2) ?? '--'}
+		v: {volume?.toFixed(2) ?? '--'}
 	</div>
 
 	<div class="chart-area">
 		<div bind:this={container} class="chart-container"></div>
-
-		{#if tooltipVisible}
-			<div
-				bind:this={tooltipElement}
-				class="tooltip"
-				style="transform: translate(${tooltipX}px, ${tooltipY}px)"
-			>
-				<div>Close: {tooltipClose?.toFixed(2) ?? '--'}</div>
-				<div>VWAP: {tooltipVwap?.toFixed(2) ?? '--'}</div>
-				<div>Volume: {tooltipVolume?.toLocaleString() ?? '--'}</div>
-			</div>
-		{/if}
 	</div>
 </div>
 
@@ -551,18 +433,5 @@
 
 	.down {
 		color: #ef4444;
-	}
-
-	.tooltip {
-		position: absolute;
-		background: rgba(15, 23, 42, 0.95);
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		border-radius: 6px;
-		padding: 8px 10px;
-		font-size: 12px;
-		color: #e2e8f0;
-		pointer-events: none;
-		backdrop-filter: blur(6px);
-		white-space: nowrap;
 	}
 </style>
