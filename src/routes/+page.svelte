@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import ChartContainer from '$lib/chart/ChartContainer.svelte';
 	import { mapPolygonToCandle } from '$lib/chart/mappers';
-	import type { Candle } from '$lib/chart/types';
+	import type { Candle } from '$lib/chart/types/market';
 
 	let candles = $state<Candle[]>([]);
 	let loading = $state(false);
@@ -16,12 +16,14 @@
 			const response = await fetch(
 				'https://api.massive.com/v2/aggs/ticker/AAPL/range/1/minute/2025-11-01/2025-11-30?sort=asc&limit=15000&apiKey=oj3woDH8ZPPOWOVbYkvdmiYVJKqJXpb7'
 			);
+			// console.log(response);
 
 			if (!response.ok) {
 				throw new Error(`HTTP ${response.status}`);
 			}
 
 			const data = await response.json();
+
 			candles = mapPolygonToCandle(data);
 		} catch (err: any) {
 			error = err.message;

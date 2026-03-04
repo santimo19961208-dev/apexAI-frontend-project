@@ -1,8 +1,11 @@
 <script lang="ts">
 	import ChartCore from './ChartCore.svelte';
 	import ChartToolbar, { type Timeframe } from './ChartToolbar.svelte';
-	import type { Candle } from './types';
+	import {runMockStrategy} from './engine/StrategyEngine';
+	import type { Candle } from './types/market';
+
 	import { resampleCandles } from './resample';
+	import { useEffect } from 'storybook/internal/preview-api';
 
 	let {
 		candles = []
@@ -10,9 +13,17 @@
 		candles: Candle[];
 	} = $props();
 
+	let theme: 'dark' | 'light' = $state('dark');
+
 	let activeTimeframe: Timeframe = $state('1m');
 
-	let displayCandles = $derived(resampleCandles(candles, activeTimeframe));
+	let displayCandles:Candle[] = $derived(resampleCandles(candles, activeTimeframe));
+
+	let strategy = $derived(runMockStrategy(displayCandles));
+
+	function toggleTheme() {
+		theme = theme === 'dark' ? 'light' : 'dark';
+	}
 
 	function handleTimeframeChange(tf: Timeframe) {
 		activeTimeframe = tf;
@@ -36,13 +47,16 @@
 	<ChartToolbar
 		active={activeTimeframe}
 		onChange={handleTimeframeChange}
-		vwapEnabled={vwapEnabled}
+		{theme}
+		onToggleTheme={toggleTheme}
+		{vwapEnabled}
 		onToggleVWAP={toggleVWAP}
-		emaEnabled={emaEnabled}
+		{emaEnabled}
 		onToggleEMA={toggleEMA}
 	/>
 
-	<ChartCore candles={displayCandles} vwapEnabled={vwapEnabled} emaEnabled={emaEnabled} />
+	<ChartCore candles={displayCandles} signals={strategy.signals}
+	strategyLevels={strategy.levels} {theme} {vwapEnabled} {emaEnabled} />
 </div>
 
 <style>
