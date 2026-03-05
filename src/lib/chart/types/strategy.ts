@@ -1,8 +1,10 @@
+import type { UTCTimestamp } from "lightweight-charts";
+
 export type SignalSide = 'long' | 'short';
 
 export interface StrategySignal {
 	id: string;
-	time: number;
+	time: UTCTimestamp;
 	side: SignalSide;
 	price: number;
 }
