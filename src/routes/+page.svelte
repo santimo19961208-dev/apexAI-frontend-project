@@ -1,50 +1,35 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import ChartContainer from '$lib/chart/ChartContainer.svelte';
-	import { mapPolygonToCandle } from '$lib/chart/mappers';
-	import type { Candle } from '$lib/chart/types/market';
 
-	let candles = $state<Candle[]>([]);
-	let loading = $state(false);
-	let error: string | null = $state(null);
+import { onMount } from 'svelte'
+import Chart from '$lib/chart/Chart.svelte'
+import type { ChartAPI } from '$lib/chart/api/ChartAPI'
+import { mapPolygonToCandle } from '$lib/chart/utils/mappers'
 
-	async function loadDate() {
-		try {
-			loading = true;
-			error = null;
+let chart: ChartAPI | null = null
 
-			const response = await fetch(
-				'https://api.massive.com/v2/aggs/ticker/AAPL/range/1/minute/2025-11-01/2025-11-30?sort=asc&limit=15000&apiKey=oj3woDH8ZPPOWOVbYkvdmiYVJKqJXpb7'
-			);
-			// console.log(response);
+function handleReady(api: ChartAPI) {
+    chart = api
+    loadHistory()
+}
 
-			if (!response.ok) {
-				throw new Error(`HTTP ${response.status}`);
-			}
+async function loadHistory() {
 
-			const data = await response.json();
+    if (!chart) return
 
-			candles = mapPolygonToCandle(data);
-		} catch (err: any) {
-			error = err.message;
-		} finally {
-			loading = false;
-		}
-	}
+    const res = await fetch('https://api.massive.com/v2/aggs/ticker/AAPL/range/1/minute/2025-11-01/2025-11-30?sort=asc&limit=15000&apiKey=oj3woDH8ZPPOWOVbYkvdmiYVJKqJXpb7')
 
-	//Run only in browser
-	onMount(() => {
-		loadDate();
-	});
+    const json = await res.json()
+
+    const candles = mapPolygonToCandle(json)
+
+    chart.setCandles(candles)
+
+}
+
+onMount(() => {
+    loadHistory()
+})
+
 </script>
 
-<div class="p-10">
-	<h1 class="mb-6 text-2xl font-bold">AAPL Chart</h1>
-	{#if loading}
-		<p>Loading...</p>
-	{:else if error}
-		<p class="text-red-500">Error: {error}</p>
-	{:else}
-		<ChartContainer {candles} />
-	{/if}
-</div>
+<Chart onReady={handleReady}/>

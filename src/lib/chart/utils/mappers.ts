@@ -1,5 +1,5 @@
 import type { UTCTimestamp } from 'lightweight-charts';
-import type {Candle} from './types/market';
+import type {Candle} from '../types/market';
 interface PolygonAgg{
     t:number;
     o:number;
@@ -7,8 +7,6 @@ interface PolygonAgg{
     l:number;
     c:number;
     v:number;
-    vw?:number;
-    n?:number;
 }
 
 interface PolygonResponse{
@@ -28,8 +26,18 @@ export function mapPolygonToCandle(apiResponse:PolygonResponse):Candle[]{
         close: item.c,
 
         volume: item.v,
-
-        vwap: item.vw,
-        tradCount: item.n
     }));
+}
+
+export function mapBackendCandle(raw: PolygonAgg): Candle {
+
+    return {
+        time: Math.floor(raw.t / 1000) as UTCTimestamp,
+        open: raw.o,
+        high: raw.h,
+        low: raw.l,
+        close: raw.c,
+        volume: raw.v
+    }
+
 }
